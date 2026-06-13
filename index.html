@@ -1,224 +1,71 @@
 <!DOCTYPE html>
 <html>
-
 <head>
-	<!-- 文字エンコーディングをUTF-8に設定（日本語などの文字化けを防ぐ） -->
-	<meta charset="utf-8">
-
-	<!-- ブラウザのタブに表示されるページタイトル -->
-	<title>My First Web Map</title>
-
-	<!-- MapLibre GLのスタイルシート（地図の見た目を定義） -->
-	<link href="https://unpkg.com/maplibre-gl@5.3.0/dist/maplibre-gl.css" rel="stylesheet">
-
-	<!-- 独自のスタイルシート（地図のサイズなどをカスタマイズ） -->
-	<link rel="stylesheet" href="style.css">
-    <style>
-        body {
-            margin: 0;
-            display: flex;
-        }
-
-        #map {
-            width: 75vw;
-            height: 100vh;
-        }
-    /* 右側の説明パネル */
-        #info-panel {
-            width: 25vw;
-            height: 100vh;
-            padding: 20px;
-            box-sizing: border-box;
-            background: #f5f5f5;
-            border-left: 2px solid #ccc;
-            font-family: sans-serif;
-        }
-
-        #info-panel h2 {
-            margin-top: 0;
-        }
-    </style>
+    <meta charset="utf-8">
+    <title>ZisinRisuku Web Map</title>
+    <link href="https://unpkg.com/maplibre-gl@5.3.0/dist/maplibre-gl.css" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
 </head>
-
 <body>
+    <div id="sidebar">
+        <button id="close-sidebar-btn">×</button>
+        <div id="sidebar-content">
+            <h2>詳細情報</h2>
+            <p>大きな地震のマーク（赤いリングの点）をクリックすると、ここに詳細が表示されます。</p>
+        </div>
+    </div>
 
-<div id="map"></div>
+    <div id="map"></div>
 
-<div id="info-panel">
-    <h2>地震リスク情報</h2>
-    <p>危険エリアをクリックしてください。</p>
-</div>
+    <div id="legend" class="hidden">
+        <h4>地震リスクレベル</h4>
+        <div class="legend-gradient"></div>
+        <div class="legend-labels">
+            <span>低</span>
+            <span>中</span>
+            <span>高</span>
+        </div>
+    </div>
 
-<script src="https://unpkg.com/maplibre-gl@5.3.0/dist/maplibre-gl.js"></script>
+    <div id="ui-container">
+        <button id="analyze-btn">分析開始</button>
+    </div>
 
-<script>
+	<div id="date-modal" class="hidden">
+        <div class="modal-box">
+            <h3 style="margin-top:0; color:#333;">分析期間の選択</h3>
+            
+            <div class="radio-group" style="margin-bottom: 15px; text-align: left;">
+                <label style="display: block; margin-bottom: 10px; cursor: pointer;">
+                    <input type="radio" name="period-type" value="month" checked> 過去1ヶ月（初期設定）
+                </label>
+                <label style="display: block; cursor: pointer;">
+                    <input type="radio" name="period-type" value="custom"> 期間を指定する
+                </label>
+            </div>
 
-const map = new maplibregl.Map({
-    container: 'map',
-    style: 'https://tiles.openfreemap.org/styles/liberty',
-    center: [139.95483, 37.833506],
-    zoom: 5
-});
-// ===== ナビゲーションコントロールの追加 =====
-// 地図の右上にズームボタンと回転ボタンを追加
-map.addControl(new maplibregl.NavigationControl());
+            <div id="custom-dates" class="disabled">
+                <input type="date" id="start-date" class="date-input"> 〜
+                <input type="date" id="end-date" class="date-input"><br>
+                <span class="note">※終了日を空欄にすると「現在」までになります</span>
+            </div>
 
-		// ===== マーカーの追加 =====
-		// 地図上にピンを立てる
-		new maplibregl.Marker({ color: "red" })
-			.setLngLat([142.2, 40.94])  // マーカーの位置 [経度, 緯度]（東京駅）
-			.setPopup(
-				// マーカーをクリックしたときに表示されるポップアップ
-				new maplibregl.Popup()
-					.setHTML("<h3>地震多発地域</h3><p>2026/*/**~2026/*/**</p>")  // ポップアップの内容（HTML形式）
-			)
-			.addTo(map);  // 作成したマーカーを地図に追加
-		
-		new maplibregl.Marker({ color: "red" })
-			.setLngLat([138.26, 38.5,])  // マーカーの位置 [経度, 緯度]（東京駅）
-			.setPopup(
-				// マーカーをクリックしたときに表示されるポップアップ
-				new maplibregl.Popup()
-					.setHTML("<h3>大地震発生</h3><p>2026/**/**</p>")  // ポップアップの内容（HTML形式）
-			)
-			.addTo(map);  // 作成したマーカーを地図に追加
+            <div class="modal-actions" style="margin-top: 20px;">
+                <button id="cancel-date-btn">キャンセル</button>
+                <button id="execute-btn">分析を開始</button>
+            </div>
+        </div>
+    </div>
+	
+    <div id="analysis-overlay" class="hidden">
+        <div class="analysis-box">
+            <h2 id="analysis-status">データ解析中...</h2>
+            <p id="analysis-time">--/--/-- --:--</p>
+            <button id="skip-btn">スキップ</button>
+        </div>
+    </div>
 
-        const locations = [
-            { lng: 136.691706, lat: 31.689487, name: "地震発生 ****/**/**" },
-            { lng: 141.354376, lat: 43.064172, name: "地震発生 ****/**/**" },
-            { lng: 130.401716, lat: 34.590355, name: "地震発生 ****/**/**" },
-            { lng: 140.95601378561128, lat: 35.83122279718067, name: "地震発生 ****/**/**" },
-        ];
-
-        locations.forEach(loc => {
-            new maplibregl.Marker()
-                .setLngLat([loc.lng, loc.lat])
-                .setPopup(
-                new maplibregl.Popup().setHTML(`<h3>${loc.name}</h3>`)
-                )
-                .addTo(map);
-        });
-
-
-        // 地図読み込み完了後
-        map.on('load', () => {
-
-            // ===== 1つ目の危険エリア =====
-            map.addSource('risk-area-1', {
-                type: 'geojson',
-                data: {
-                    type: 'FeatureCollection',
-                    features: [
-                        {
-                            type: 'Feature',
-                            geometry: {
-                                type: 'Point',
-                                coordinates: [142.8, 40.79]
-                            }
-                        }
-                    ]
-                }
-            });
-
-            map.addLayer({
-                id: 'risk-circle-1',
-                type: 'circle',
-                source: 'risk-area-1',
-
-                paint: {
-                    'circle-radius': 130,
-                    'circle-color': '#ff0000',
-                    'circle-opacity': 0.4,
-                    'circle-stroke-width': 2,
-                    'circle-stroke-color': '#aa0000'
-                }
-            });
-
-
-            // ===== 2つ目の危険エリア =====
-            map.addSource('risk-area-2', {
-                type: 'geojson',
-                data: {
-                    type: 'FeatureCollection',
-                    features: [
-                        {
-                            type: 'Feature',
-                            geometry: {
-                                type: 'Point',
-                                coordinates: [138.06, 38.0]
-                            }
-                        }
-                    ]
-                }
-            });
-
-            map.addLayer({
-                id: 'risk-circle-2',
-                type: 'circle',
-                source: 'risk-area-2',
-
-                paint: {
-                    'circle-radius': 90,
-                    'circle-color': '#ff0000',
-                    'circle-opacity': 0.1,
-                    'circle-stroke-width': 2,
-                    'circle-stroke-color': '#aa0000',
-                    'circle-stroke-opacity': 0.5
-                }
-            });
-
-        });
-        // =========================
-        // クリック時に右側へ説明表示
-        // =========================
-
-        map.on('click', 'risk-circle-1', (e) => {
-
-            const props = e.features[0].properties;
-
-            document.getElementById('info-panel').innerHTML = `
-                <h2>リスク５</h2>
-                <p>${props.description}</p>
-            `;
-        });
-
-        map.on('click', 'risk-circle-2', (e) => {
-
-            const props = e.features[0].properties;
-
-            document.getElementById('info-panel').innerHTML = `
-                <h2>リスク３</h2>
-                <p>
-                過去にあった地震<br>
-                ・<br>
-                ・<br>
-                地震に注意<br>
-                津波に注意
-                </p>
-            `;
-        });
-
-
-        // マウスカーソル変更
-        map.on('mouseenter', 'risk-circle-1', () => {
-            map.getCanvas().style.cursor = 'pointer';
-        });
-
-        map.on('mouseleave', 'risk-circle-1', () => {
-            map.getCanvas().style.cursor = '';
-        });
-
-        map.on('mouseenter', 'risk-circle-2', () => {
-            map.getCanvas().style.cursor = 'pointer';
-        });
-
-        map.on('mouseleave', 'risk-circle-2', () => {
-            map.getCanvas().style.cursor = '';
-        });
-
-
-
-</script>
-
+    <script src="https://unpkg.com/maplibre-gl@5.3.0/dist/maplibre-gl.js"></script>
+    <script src="main.js"></script>
 </body>
 </html>
