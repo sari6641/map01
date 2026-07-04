@@ -323,3 +323,20 @@ map.on('mouseleave', 'significant-earthquakes', () => {
 document.getElementById('close-sidebar-btn').addEventListener('click', () => {
     document.getElementById('sidebar').classList.remove('active');
 });
+const aboutBtn = document.getElementById("about-btn");
+const aboutModal = document.getElementById("about-modal");
+const closeAbout = document.getElementById("close-about");
+
+aboutBtn.addEventListener("click", () => {
+    aboutModal.style.display = "block";
+});
+
+closeAbout.addEventListener("click", () => {
+    aboutModal.style.display = "none";
+});
+
+window.addEventListener("click", (e) => {
+    if (e.target === aboutModal) {
+        aboutModal.style.display = "none";
+    }
+});
