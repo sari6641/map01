@@ -12,6 +12,12 @@
     <button id="about-btn">About</button>
 </header>
 
+<!-- 地図上に配置する検索コンテナ -->
+<div id="search-container">
+    <input type="text" id="country-search" placeholder="国名を入力 (例: 日本)">
+    <button id="search-btn">検索</button>
+</div>
+
 <div id="about-modal" class="modal">
     <div class="modal-content">
         <span id="close-about">&times;</span>
@@ -97,8 +103,16 @@
 
 	<div id="date-modal" class="hidden">
         <div class="modal-box">
-            <h3 style="margin-top:0; color:#333;">分析期間の選択</h3>
+            <h3 style="margin-top:0; color:#333;">分析条件の選択</h3>
             
+            <div style="margin-bottom: 20px; text-align: left;">
+                <label style="display: block; font-weight: bold; margin-bottom: 5px;">対象地域:</label>
+                <select id="country-select" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #ccc; font-size: 14px;">
+                    <option value="all">全世界（デフォルト）</option>
+                    <!-- ここにmain.jsでCSVから取得した国が追加されます -->
+                </select>
+            </div>
+
             <div class="radio-group" style="margin-bottom: 15px; text-align: left;">
                 <label style="display: block; margin-bottom: 10px; cursor: pointer;">
                     <input type="radio" name="period-type" value="month" checked> 過去1ヶ月（初期設定）
