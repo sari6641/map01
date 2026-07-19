@@ -6,6 +6,12 @@ const map = new maplibregl.Map({
     zoom: 4.5
 });
 
+// ===== 描画ツールの初期化 =====
+const draw = new MapboxDraw({
+    displayControlsDefault: false 
+});
+map.addControl(draw);
+
 let earthquakeData = null;
 let animationId = null;
 let isAnimating = false;
@@ -37,6 +43,13 @@ document.getElementById('execute-btn').addEventListener('click', async function(
     btn.disabled = true;
     btn.innerText = 'データ取得中...';
 
+    // 分析開始時はツール類をリセット
+    document.getElementById('left-tools-board').classList.add('hidden');
+    document.getElementById('time-control-panel').classList.add('hidden');
+    document.getElementById('ui-container').classList.remove('lifted');
+    document.getElementById('draw-prompt').classList.add('hidden');
+    draw.deleteAll(); 
+
     if (map.getLayer('earthquakes-heat')) {
         map.setLayoutProperty('earthquakes-heat', 'visibility', 'none');
     }
@@ -47,19 +60,16 @@ document.getElementById('execute-btn').addEventListener('click', async function(
     document.getElementById('sidebar').classList.remove('active');
 
     const periodType = document.querySelector('input[name="period-type"]:checked').value;
-    const selectedCountryName = document.getElementById('country-select').value; // 選択された国を取得
+    const selectedCountryName = document.getElementById('country-select').value; 
     
     let baseUrl = '';
 
-    // 1. 期間によるベースURLの作成
     if (periodType === 'month') {
-        // Radius指定を適用するため、過去1ヶ月の場合もクエリ形式を使用する
         const today = new Date();
         const endDateStr = today.toISOString().split('T')[0];
         const startDateObj = new Date();
         startDateObj.setDate(today.getDate() - 30);
         const startDateStr = startDateObj.toISOString().split('T')[0];
-        
         baseUrl = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=${startDateStr}&endtime=${endDateStr}&limit=20000`;
     } else {
         const startDate = document.getElementById('start-date').value;
@@ -77,16 +87,13 @@ document.getElementById('execute-btn').addEventListener('click', async function(
         baseUrl = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=${startDate}&endtime=${endDate}&limit=20000`;
     }
 
-    // 2. 地域（国）によるフィルタリングの追加
     let apiUrl = baseUrl;
     if (selectedCountryName !== 'all') {
-        // 選択された国の緯度経度を探す
         const targetCountry = countryCoordinates.find(c => c.name === selectedCountryName);
         if (targetCountry) {
-            const radiusKm = 1500; // 取得する半径（km）。日本周辺なら1500km程度が目安
+            const radiusKm = 1500; 
             apiUrl += `&latitude=${targetCountry.lat}&longitude=${targetCountry.lng}&maxradiuskm=${radiusKm}`;
             
-            // ついでに選択された国へカメラを移動させる（オプション）
             map.flyTo({
                 center: [targetCountry.lng, targetCountry.lat],
                 zoom: 4,
@@ -95,8 +102,6 @@ document.getElementById('execute-btn').addEventListener('click', async function(
             });
         }
     }
-
-    // ====== この後の try { const response = await fetch(apiUrl); ... } はそのまま ======
 
     try {
         const response = await fetch(apiUrl);
@@ -198,7 +203,6 @@ document.getElementById('skip-btn').addEventListener('click', () => {
     }
 });
 
-// ===== ここから アプローチB: ポイントごとの深刻度スコア計算 =====
 function finishAnalysis() {
     document.getElementById('analysis-overlay').classList.add('hidden');
     
@@ -206,64 +210,54 @@ function finishAnalysis() {
     btn.innerText = '再分析';
     btn.disabled = false; 
 
+    document.getElementById('left-tools-board').classList.remove('hidden');
+
     if (map.getLayer('animation-layer')) map.removeLayer('animation-layer');
     if (map.getSource('animation-source')) map.removeSource('animation-source');
 
-    // 1. データ全体の最大マグニチュードを取得（正規化のため）
     let maxMag = 0;
     earthquakeData.features.forEach(feature => {
         const mag = feature.properties.mag || 0;
         if (mag > maxMag) maxMag = mag;
     });
 
-    // 2. 各ポイントの「深刻度（Point Score）」を計算
     earthquakeData.features.forEach(feature => {
         const props = feature.properties;
-        // USGSデータ: 経度, 緯度, 深さ(km) の順
         const depth = feature.geometry.coordinates[2] !== undefined ? feature.geometry.coordinates[2] : 0;
         
-        // データの抽出
         const mag = props.mag || 0;
         const tsunami = props.tsunami === 1 ? 1 : 0;
 
-        // 正規化 (0.0 〜 1.0)
         const normMag = maxMag > 0 ? (mag / maxMag) : 0;
-        const depthScore = Math.max(0, (100 - depth) / 100); // 0kmで1.0、100km以深で0.0
+        const depthScore = Math.max(0, (100 - depth) / 100); 
 
-        // 「頻度(0.40)」はヒートマップの密集度に任せるため、ここではそれ以外の要素(計0.60)を計算
         const pointScore = (0.30 * normMag) + (0.20 * depthScore) + (0.10 * tsunami);
         
-        // 特殊プロパティとして保存
         feature.properties.pointScore = pointScore;
     });
 
-    // 3. 地図への描画
     if (!map.getSource('earthquakes')) {
         map.addSource('earthquakes', {
             type: 'geojson',
             data: earthquakeData
         });
 
-        // ヒートマップレイヤー
         map.addLayer({
             id: 'earthquakes-heat',
             type: 'heatmap',
             source: 'earthquakes',
             maxzoom: 9,
             paint: {
-                // 各ポイントが持つ深刻度（最大0.6）を重みにする
                 'heatmap-weight': [
                     'interpolate', ['linear'], ['get', 'pointScore'],
                     0, 0,
-                    0.6, 1  // スコアが0.6なら最大の熱量として扱う
+                    0.6, 1 
                 ],
-                // ズームに応じた熱源の広がり
                 'heatmap-radius': [
                     'interpolate', ['linear'], ['zoom'],
-                    0, 5,   // 元は 2（ズームレベル0：世界全体を見た時のサイズ）
-                    9, 40   // 元は 20（ズームレベル9：拡大した時のサイズ）
+                    0, 5, 
+                    9, 40 
                 ],
-                // ヒートマップのカラー設定
                 'heatmap-color': [
                     'interpolate', ['linear'], ['heatmap-density'],
                     0, 'rgba(33,102,172,0)',
@@ -276,7 +270,6 @@ function finishAnalysis() {
             }
         });
 
-        // 大規模地震のマーカー
         map.addLayer({
             id: 'significant-earthquakes',
             type: 'circle',
@@ -294,8 +287,11 @@ function finishAnalysis() {
             }
         });
     } else {
-        // すでにソースがある場合はデータを更新して表示切り替え
         map.getSource('earthquakes').setData(earthquakeData);
+        // フィルタをリセットして全表示
+        map.setFilter('earthquakes-heat', null);
+        map.setFilter('significant-earthquakes', ['>=', ['get', 'mag'], 5.0]);
+        
         map.setLayoutProperty('earthquakes-heat', 'visibility', 'visible');
         map.setLayoutProperty('significant-earthquakes', 'visibility', 'visible');
     }
@@ -303,8 +299,268 @@ function finishAnalysis() {
     document.getElementById('legend').classList.remove('hidden');
 }
 
+
+// ===== ツールボード内のボタンイベント =====
+
+// 1. エリア詳細ボタン
+document.getElementById('area-details-btn').addEventListener('click', () => {
+    if (!earthquakeData || earthquakeData.features.length === 0) {
+        alert('データがありません。先に「分析開始」を実行してください。');
+        return;
+    }
+    draw.deleteAll();
+    draw.changeMode('draw_polygon');
+    
+    document.getElementById('draw-prompt').classList.remove('hidden');
+    document.getElementById('sidebar').classList.remove('active');
+});
+
+// 2. 時間別ボタンと再生バーの処理
+const timePanel = document.getElementById('time-control-panel');
+const uiContainer = document.getElementById('ui-container');
+const sliderStart = document.getElementById('time-slider-start');
+const sliderEnd = document.getElementById('time-slider-end');
+const trackHighlight = document.getElementById('slider-track-highlight');
+const displayStart = document.getElementById('time-display-start');
+const displayEnd = document.getElementById('time-display-end');
+const playPauseBtn = document.getElementById('play-pause-btn');
+let playbackInterval = null;
+
+document.getElementById('time-filter-btn').addEventListener('click', () => {
+    if (!earthquakeData || earthquakeData.features.length === 0) {
+        alert('データがありません。先に「分析開始」を実行してください。');
+        return;
+    }
+
+    // データから最小・最大時間(タイムスタンプ)を取得
+    const features = earthquakeData.features;
+    const minTime = features[0].properties.time;
+    const maxTime = features[features.length - 1].properties.time;
+
+    // スライダーの範囲を設定
+    sliderStart.min = minTime;
+    sliderStart.max = maxTime;
+    sliderEnd.min = minTime;
+    sliderEnd.max = maxTime;
+    
+    // 初期値は全期間を表示
+    sliderStart.value = minTime;
+    sliderEnd.value = maxTime;
+
+    updateTimeFilter();
+
+    // パネル表示と「再分析」ボタンの上スライド
+    timePanel.classList.remove('hidden');
+    uiContainer.classList.add('lifted');
+});
+
+document.getElementById('close-time-panel-btn').addEventListener('click', () => {
+    timePanel.classList.add('hidden');
+    uiContainer.classList.remove('lifted');
+    
+    // 再生中なら停止
+    if (playbackInterval) {
+        clearInterval(playbackInterval);
+        playbackInterval = null;
+        playPauseBtn.innerText = '▶ 再生';
+    }
+    
+    // 地図のフィルターを解除して全件表示に戻す
+    if (map.getLayer('earthquakes-heat')) {
+        map.setFilter('earthquakes-heat', null);
+    }
+    if (map.getLayer('significant-earthquakes')) {
+        map.setFilter('significant-earthquakes', ['>=', ['get', 'mag'], 5.0]);
+    }
+});
+
+// スライダー操作時のイベント
+sliderStart.addEventListener('input', (e) => updateTimeFilter(e));
+sliderEnd.addEventListener('input', (e) => updateTimeFilter(e));
+
+function updateTimeFilter(e) {
+    let startVal = parseInt(sliderStart.value);
+    let endVal = parseInt(sliderEnd.value);
+    
+    // ツマミが交差しないようにブロックする処理
+    if (startVal > endVal) {
+        if (e && e.target === sliderStart) {
+            sliderStart.value = endVal;
+            startVal = endVal;
+        } else if (e && e.target === sliderEnd) {
+            sliderEnd.value = startVal;
+            endVal = startVal;
+        } else {
+            const tmp = startVal;
+            startVal = endVal;
+            endVal = tmp;
+        }
+    }
+    
+    // 日付表示の更新
+    displayStart.innerText = new Date(startVal).toLocaleString('ja-JP');
+    displayEnd.innerText = new Date(endVal).toLocaleString('ja-JP');
+    
+    // スライダーの青いバー(ハイライト)の長さと位置を更新
+    const min = parseInt(sliderStart.min);
+    const max = parseInt(sliderStart.max);
+    const percentStart = ((startVal - min) / (max - min)) * 100;
+    const percentEnd = ((endVal - min) / (max - min)) * 100;
+    
+    trackHighlight.style.left = percentStart + '%';
+    trackHighlight.style.width = (percentEnd - percentStart) + '%';
+    
+    // マップへのフィルター適用
+    applyMapTimeFilter(startVal, endVal);
+}
+
+function applyMapTimeFilter(startTime, endTime) {
+    if (!earthquakeData) return;
+    
+    const filterAll = [
+        'all',
+        ['>=', ['get', 'time'], startTime],
+        ['<=', ['get', 'time'], endTime]
+    ];
+    
+    const filterSig = [
+        'all',
+        ['>=', ['get', 'mag'], 5.0],
+        ['>=', ['get', 'time'], startTime],
+        ['<=', ['get', 'time'], endTime]
+    ];
+    
+    if (map.getLayer('earthquakes-heat')) {
+        map.setFilter('earthquakes-heat', filterAll);
+    }
+    if (map.getLayer('significant-earthquakes')) {
+        map.setFilter('significant-earthquakes', filterSig);
+    }
+}
+
+// 再生ボタンの処理
+playPauseBtn.addEventListener('click', () => {
+    if (playbackInterval) {
+        // 再生中なら停止
+        clearInterval(playbackInterval);
+        playbackInterval = null;
+        playPauseBtn.innerText = '▶ 再生';
+    } else {
+        // 停止中なら再生開始
+        playPauseBtn.innerText = '⏸ 停止';
+        
+        let startVal = parseInt(sliderStart.value);
+        let endVal = parseInt(sliderEnd.value);
+        let windowSize = endVal - startVal;
+        
+        const min = parseInt(sliderStart.min);
+        const max = parseInt(sliderStart.max);
+        
+        // すでに右端まで行っている場合は、最初に戻して再生
+        if (endVal >= max) {
+            startVal = min;
+            endVal = min + windowSize;
+        }
+        
+        const speedMultiplier = parseInt(document.getElementById('playback-speed').value);
+        // 全体の長さに応じた1フレームあたりの移動量 (例: 全体を1000分割したベースに倍率をかける)
+        const step = ((max - min) / 1000) * speedMultiplier; 
+        
+        playbackInterval = setInterval(() => {
+            startVal += step;
+            endVal = startVal + windowSize;
+            
+            // 右端に到達したときの処理
+            if (endVal >= max) {
+                endVal = max;
+                startVal = max - windowSize;
+                
+                sliderStart.value = startVal;
+                sliderEnd.value = endVal;
+                updateTimeFilter();
+                
+                clearInterval(playbackInterval);
+                playbackInterval = null;
+                playPauseBtn.innerText = '▶ 再生';
+            } else {
+                sliderStart.value = startVal;
+                sliderEnd.value = endVal;
+                updateTimeFilter();
+            }
+        }, 50); // 50ms間隔で更新
+    }
+});
+
+
+// ===== 図形の描画完了時の処理 =====
+map.on('draw.create', calculateAreaDetails);
+map.on('draw.update', calculateAreaDetails);
+
+function calculateAreaDetails(e) {
+    document.getElementById('draw-prompt').classList.add('hidden');
+    
+    const data = draw.getAll();
+    if (data.features.length === 0) return;
+    
+    const polygon = data.features[0]; 
+    
+    const pts = turf.featureCollection(earthquakeData.features);
+    const pointsWithin = turf.pointsWithinPolygon(pts, polygon);
+    
+    showAreaSidebarStats(pointsWithin.features);
+}
+
+function showAreaSidebarStats(features) {
+    const sidebarContent = document.getElementById('sidebar-content');
+    
+    if (features.length === 0) {
+        sidebarContent.innerHTML = `
+            <h2 style="color: #2196F3; margin-top:0;">📊 エリア分析結果</h2>
+            <hr>
+            <p>選択されたエリア内に地震データは見つかりませんでした。</p>
+        `;
+        document.getElementById('sidebar').classList.add('active');
+        return;
+    }
+
+    let totalMag = 0;
+    let maxMag = -Infinity;
+    let totalDepth = 0;
+    let tsunamiCount = 0;
+
+    features.forEach(f => {
+        const mag = f.properties.mag || 0;
+        const depth = f.geometry.coordinates[2] || 0; 
+        
+        totalMag += mag;
+        if (mag > maxMag) maxMag = mag;
+        totalDepth += depth;
+        if (f.properties.tsunami === 1) tsunamiCount++;
+    });
+
+    const avgMag = (totalMag / features.length).toFixed(1);
+    const avgDepth = (totalDepth / features.length).toFixed(1);
+
+    sidebarContent.innerHTML = `
+        <h2 style="color: #2196F3; margin-top:0;">📊 エリア分析結果</h2>
+        <hr>
+        <p><strong>地震発生数:</strong><br><span style="font-size:24px; font-weight:bold; color:#333;">${features.length}</span> 回</p>
+        <p><strong>平均マグニチュード:</strong><br><span style="font-size:20px; font-weight:bold; color:#ff9800;">M ${avgMag}</span></p>
+        <p><strong>最大マグニチュード:</strong><br><span style="font-size:20px; font-weight:bold; color:#f44336;">M ${maxMag}</span></p>
+        <p><strong>平均震源の深さ:</strong><br>${avgDepth} km</p>
+        <p><strong>津波警報連動数:</strong><br>${tsunamiCount} 回</p>
+        <hr>
+        <p style="font-size:12px; color:#666;">※別のエリアを調べる場合は、再度「エリア詳細」ボタンを押してください。</p>
+    `;
+    
+    document.getElementById('sidebar').classList.add('active');
+}
+
+
 // ===== 大きな地震のピンをクリックしたときの処理 =====
 map.on('click', 'significant-earthquakes', (e) => {
+    if (draw.getMode() !== 'simple_select') return;
+
     const properties = e.features[0].properties;
     const earthquakeTime = new Date(properties.time).toLocaleString('ja-JP');
     const sidebarContent = document.getElementById('sidebar-content');
@@ -327,6 +583,7 @@ map.on('mouseenter', 'significant-earthquakes', () => {
 map.on('mouseleave', 'significant-earthquakes', () => {
     map.getCanvas().style.cursor = '';
 });
+
 
 // ===== サイドバーとモーダルの処理 =====
 document.getElementById('close-sidebar-btn').addEventListener('click', () => {
@@ -363,7 +620,7 @@ async function loadCountryData() {
         const csvText = decoder.decode(buffer);
         const lines = csvText.split(/\r\n|\n/);
         
-        const countrySelect = document.getElementById('country-select'); // プルダウンを取得
+        const countrySelect = document.getElementById('country-select'); 
 
         for (let i = 1; i < lines.length; i++) {
             if (lines[i].trim() === '') continue;
@@ -378,7 +635,6 @@ async function loadCountryData() {
                 description: cols[4] ? cols[4].trim() : ""
             });
 
-            // プルダウンに国の選択肢(option)を追加
             const option = document.createElement('option');
             option.value = countryName;
             option.textContent = countryName;
