@@ -14,37 +14,79 @@
         <button id="about-btn">About</button>
     </header>
 
+    <!-- 地図切り替えコントロール（アバウトボタンの近くや任意のUIコンテナ内に配置） -->
+<div id="basemap-control-container">
+    <button id="basemap-toggle-btn" title="地図を切り替え">
+        <!-- 初期表示用のアイコン画像 -->
+        <img src="hyouzyunmap.png" alt="地図切替">
+    </button>
+    
+    <div id="basemap-board" class="hidden">
+
+    <div class="basemap-option" data-style="https://tiles.openfreemap.org/styles/liberty">
+        <img src="hyouzyunmap.png" alt="標準">
+        <span>標準</span>
+    </div>
+    
+
+    <div class="basemap-option" data-style="https://tiles.openfreemap.org/styles/positron">
+        <img src="sirokuromap.png" alt="白黒">
+        <span>ホワイト</span>
+    </div>
+    
+
+    <div class="basemap-option" data-style="https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json">
+        <img src="darkmap.png" alt="ダーク">
+        <span>ダーク</span>
+    </div>
+</div>
+</div>
+
     <!-- 地図上に配置する検索コンテナ -->
     <div id="search-container">
-    <input
-        type="text"
-        id="country-search"
-        list="country-list"
-        placeholder="国名を入力 (例: 日本)">
-
-    <datalist id="country-list"></datalist>
-
-    <button id="search-btn">検索</button>
+        <input
+            type="text"
+            id="country-search"
+            list="country-list"
+            placeholder="国名を入力 (例: 日本)">
+        <datalist id="country-list"></datalist>
+        <button id="search-btn">検索</button>
     </div>
 
     <!-- マップ左のツールボード -->
     <div id="left-tools-board" class="hidden">
         <h3>分析ツール</h3>
         
+        <div class="display-toggle-section">
+            <h4>表示切替</h4>
+            <div class="toggle-group">
+                <label>
+                    <input type="radio" name="display-mode" value="heatmap" checked> 地震活性化度
+                </label>
+                <label>
+                    <input type="radio" name="display-mode" value="points"> 地震地点
+                </label>
+            </div>
+            
+            <div id="point-options" class="hidden">
+                <label>
+                    <input type="radio" name="point-filter" value="all" checked> すべての地震
+                </label>
+                <label>
+                    <input type="radio" name="point-filter" value="sig"> マグニチュード5以上
+                </label>
+            </div>
+        </div>
+        
+        <hr class="tool-divider">
         <div class="tool-item">
             <button id="area-details-btn" class="tool-btn">エリア詳細</button>
             <p class="tool-desc">囲ったエリアの情報が見られます</p>
         </div>
-        
-        <hr class="tool-divider">
-        
-        <div class="tool-item">
-            <button id="time-filter-btn" class="tool-btn time-btn">時間別</button>
-            <p class="tool-desc">見たい時間の地震を表示できます</p>
-        </div>
-    </div>
+    </div> <!-- 👈【修正】閉じタグを追加しました -->
 
-    <div id="about-modal" class="modal">
+    <!-- About モーダル -->
+    <div id="about-modal" class="modal hidden"> <!-- 👈【修正】hiddenクラスを統一適用 -->
         <div class="modal-content">
             <span id="close-about">&times;</span>
             <h2>About</h2>
@@ -122,7 +164,7 @@
         <button id="analyze-btn">分析開始</button>
     </div>
 
-    <!-- ===== 追加: 時間操作パネル ===== -->
+    <!-- 時間操作パネル -->
     <div id="time-control-panel" class="hidden">
         <div class="time-control-header">
             <span id="time-display-start">--/--/--</span> 〜 <span id="time-display-end">--/--/--</span>
@@ -144,7 +186,7 @@
         </div>
         <button id="close-time-panel-btn" title="閉じる">×</button>
     </div>
-    <!-- ================================ -->
+    <button id="show-time-panel-toggle" class="hidden">▲ 時間操作パネル</button>
 
     <!-- エリア描画時のプロンプト -->
     <div id="draw-prompt" class="hidden">

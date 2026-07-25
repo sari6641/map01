@@ -217,6 +217,210 @@ let earthquakeData = null;
 let animationId = null;
 let isAnimating = false;
 
+// ===== 地図切り替えUIの制御 =====
+const basemapToggleBtn = document.getElementById('basemap-toggle-btn');
+const basemapBoard = document.getElementById('basemap-board');
+const basemapOptions = document.querySelectorAll('.basemap-option');
+
+// 現在のスタイルを記録しておく変数（初期設定のスタイルを指定）
+let currentMapStyle = 'mapbox://styles/mapbox/streets-v12';
+
+// ボタンクリックでボードを開閉
+basemapToggleBtn.addEventListener('click', () => {
+    basemapBoard.classList.toggle('hidden');
+});
+
+// 各マップオプションのクリックイベント
+basemapOptions.forEach(option => {
+    option.addEventListener('click', () => {
+        const newStyle = option.getAttribute('data-style');
+        
+        console.log("切り替え先のスタイル:", newStyle); // デバッグ用
+
+        // 現在と同じスタイルなら閉じるだけで処理をスキップ
+        if (currentMapStyle === newStyle) {
+            basemapBoard.classList.add('hidden');
+            return;
+        }
+        
+        try {
+            // スタイルを変更
+            currentMapStyle = newStyle;
+            map.setStyle(newStyle);
+            basemapBoard.classList.add('hidden');
+        } catch (error) {
+            console.error("スタイルの変更中にエラーが発生しました:", error);
+        }
+    });
+});
+
+// ===== データの引き継ぎ（スタイル再読み込み時の復元） =====
+// 新しい地図スタイルが読み込み終わったタイミングで発火します
+map.on('style.load', () => {
+    if (typeof earthquakeData !== 'undefined' && earthquakeData && earthquakeData.features && earthquakeData.features.length > 0) {
+        restoreDataLayers(earthquakeData);
+    }
+});
+
+/**
+ * 消えてしまったソースとレイヤーを再追加し、UIの状態を復元する関数
+ * @param {Object} geojsonData - APIから取得したGeoJSONデータ
+ */
+function restoreDataLayers(geojsonData) {
+    // 1. ソースの再追加
+    if (!map.getSource('earthquakes')) {
+        map.addSource('earthquakes', {
+            type: 'geojson',
+            data: geojsonData
+        });
+    }
+
+    // 2. ヒートマップレイヤーの再追加
+    if (!map.getLayer('earthquakes-heat')) {
+        map.addLayer({
+            id: 'earthquakes-heat',
+            type: 'heatmap',
+            source: 'earthquakes',
+            maxzoom: 9,
+            paint: {
+                'heatmap-weight': [
+                    'interpolate', ['linear'], ['get', 'pointScore'],
+                    0, 0,
+                    0.6, 1 
+                ],
+                'heatmap-radius': [
+                    'interpolate', ['linear'], ['zoom'],
+                    0, 5, 
+                    9, 40 
+                ],
+                'heatmap-color': [
+                    'interpolate', ['linear'], ['heatmap-density'],
+                    0, 'rgba(33,102,172,0)',
+                    0.2, 'rgb(255,237,160)',
+                    0.5, 'rgb(254,178,76)',
+                    0.8, 'rgb(240,59,32)',
+                    1, 'rgb(189,0,38)'
+                ],
+                'heatmap-opacity': 0.75
+            }
+        });
+    }
+
+    // 3. すべての地震地点レイヤー (earthquakes-points) の再追加
+    if (!map.getLayer('earthquakes-points')) {
+        map.addLayer({
+            id: 'earthquakes-points',
+            type: 'circle',
+            source: 'earthquakes',
+            layout: { 'visibility': 'none' },
+            paint: {
+                'circle-radius': [
+                    'interpolate', ['exponential', 2], ['zoom'],
+                    2, ['interpolate', ['linear'], ['get', 'mag'], 0, 1, 3, 1.5, 5, 2.5],
+                    4, ['interpolate', ['linear'], ['get', 'mag'], 0, 4, 3, 6, 5, 10],
+                    8, ['interpolate', ['linear'], ['get', 'mag'], 0, 64, 3, 96, 5, 160],
+                    12, ['interpolate', ['linear'], ['get', 'mag'], 0, 1024, 3, 1536, 5, 2560]
+                ],
+                'circle-color': [
+                    'interpolate', ['linear'], ['get', 'mag'],
+                    0, 'rgba(33, 102, 172, 0.5)',
+                    3, 'rgb(255, 237, 160)',
+                    4.5, 'rgb(254, 178, 76)',
+                    6, 'rgb(240, 59, 32)',
+                    7.5, 'rgb(189, 0, 38)'
+                ],
+                'circle-opacity': 0.6,
+                'circle-stroke-width': 0.5,
+                'circle-stroke-color': '#ffffff'
+            }
+        });
+    }
+
+    // 4. 大規模地震レイヤー (significant-earthquakes) の再追加
+    if (!map.getLayer('significant-earthquakes')) {
+        map.addLayer({
+            id: 'significant-earthquakes',
+            type: 'circle',
+            source: 'earthquakes',
+            filter: ['>=', ['get', 'mag'], 5.0],
+            paint: {
+                'circle-radius': [
+                    'interpolate', ['exponential', 2], ['zoom'],
+                    2, ['interpolate', ['linear'], ['get', 'mag'], 5, 3, 7, 6.25],
+                    4, ['interpolate', ['linear'], ['get', 'mag'], 5, 12, 7, 25],
+                    8, ['interpolate', ['linear'], ['get', 'mag'], 5, 192, 7, 400],
+                    12, ['interpolate', ['linear'], ['get', 'mag'], 5, 3072, 7, 6400]
+                ],
+                'circle-color': [
+                    'interpolate', ['linear'], ['get', 'mag'],
+                    0, 'rgba(33, 102, 172, 0.5)',
+                    3, 'rgb(255, 237, 160)',
+                    4.5, 'rgb(254, 178, 76)',
+                    6, 'rgb(240, 59, 32)',
+                    7.5, 'rgb(189, 0, 38)'
+                ],
+                'circle-stroke-width': 2,
+                'circle-stroke-color': '#ffffff',
+                'circle-opacity': 0.8
+            }
+        });
+    }
+
+    // 5. Mapbox Draw データの再描画
+    if (typeof draw !== 'undefined') {
+        const drawData = draw.getAll();
+        if (drawData.features.length > 0) {
+            draw.deleteAll();
+            draw.add(drawData);
+        }
+    }
+
+    // 6. UI状態（表示モード・時間フィルター）の再反映
+    updateDisplayLayers();
+    if (sliderStart && sliderEnd && sliderStart.value && sliderEnd.value) {
+        applyMapTimeFilter(parseInt(sliderStart.value), parseInt(sliderEnd.value));
+    }
+}
+
+// ===== 表示切替の処理 =====
+function updateDisplayLayers() {
+    if (!map.getLayer('earthquakes-heat')) return; // データがない場合はスキップ
+
+    const mode = document.querySelector('input[name="display-mode"]:checked').value;
+    const pointOptions = document.getElementById('point-options');
+    
+    if (mode === 'heatmap') {
+        // ヒートマップモード
+        pointOptions.classList.add('hidden');
+        map.setLayoutProperty('earthquakes-heat', 'visibility', 'visible');
+        map.setLayoutProperty('earthquakes-points', 'visibility', 'none');
+        map.setLayoutProperty('significant-earthquakes', 'visibility', 'none');
+        document.getElementById('legend').classList.remove('hidden');
+    } else if (mode === 'points') {
+        // 地震地点モード
+        pointOptions.classList.remove('hidden');
+        map.setLayoutProperty('earthquakes-heat', 'visibility', 'none');
+        document.getElementById('legend').classList.add('hidden');
+        
+        const filterType = document.querySelector('input[name="point-filter"]:checked').value;
+        if (filterType === 'all') {
+            map.setLayoutProperty('earthquakes-points', 'visibility', 'visible');
+            map.setLayoutProperty('significant-earthquakes', 'visibility', 'visible'); 
+        } else if (filterType === 'sig') {
+            map.setLayoutProperty('earthquakes-points', 'visibility', 'none');
+            map.setLayoutProperty('significant-earthquakes', 'visibility', 'visible');
+        }
+    }
+}
+
+// ラジオボタンの変更イベントを登録
+document.querySelectorAll('input[name="display-mode"]').forEach(radio => {
+    radio.addEventListener('change', updateDisplayLayers);
+});
+document.querySelectorAll('input[name="point-filter"]').forEach(radio => {
+    radio.addEventListener('change', updateDisplayLayers);
+});
+
 document.getElementById('analyze-btn').addEventListener('click', function() {
     document.getElementById('date-modal').classList.remove('hidden');
 });
@@ -238,6 +442,20 @@ document.getElementById('cancel-date-btn').addEventListener('click', () => {
 });
 
 document.getElementById('execute-btn').addEventListener('click', async function() {
+        if (map.getLayer('earthquakes-points')) {
+            map.setLayoutProperty('earthquakes-points', 'visibility', 'none');
+        }
+        if (map.getLayer('significant-earthquakes')) {
+            map.setLayoutProperty('significant-earthquakes', 'visibility', 'none');
+        }
+        
+        // 地図上のデータソースも空にして完全に消去する
+        if (map.getSource('earthquakes')) {
+            map.getSource('earthquakes').setData({
+                type: 'FeatureCollection',
+                features: []
+            });
+        }
     document.getElementById('date-modal').classList.add('hidden');
 
     const btn = document.getElementById('analyze-btn');
@@ -248,14 +466,12 @@ document.getElementById('execute-btn').addEventListener('click', async function(
     document.getElementById('left-tools-board').classList.add('hidden');
     document.getElementById('time-control-panel').classList.add('hidden');
     document.getElementById('ui-container').classList.remove('lifted');
+    document.getElementById('show-time-panel-toggle').classList.add('hidden');
     document.getElementById('draw-prompt').classList.add('hidden');
     draw.deleteAll(); 
 
     if (map.getLayer('earthquakes-heat')) {
         map.setLayoutProperty('earthquakes-heat', 'visibility', 'none');
-    }
-    if (map.getLayer('significant-earthquakes')) {
-        map.setLayoutProperty('significant-earthquakes', 'visibility', 'none');
     }
     document.getElementById('legend').classList.add('hidden');
     document.getElementById('sidebar').classList.remove('active');
@@ -353,7 +569,7 @@ function startAnalysisAnimation() {
             paint: {
                 'circle-radius': [
                     'interpolate', ['linear'], ['get', 'mag'],
-                    1, 2, 5, 10, 7, 25
+                    1, 4, 5, 15, 7, 35
                 ],
                 'circle-color': [
                     'interpolate', ['linear'], ['get', 'mag'],
@@ -471,6 +687,60 @@ function finishAnalysis() {
             }
         });
 
+        // ===== すべての地震地点レイヤー (青系の小さな丸) =====
+        map.addLayer({
+            id: 'earthquakes-points',
+            type: 'circle',
+            source: 'earthquakes',
+            layout: { 'visibility': 'none' }, // 初期は非表示
+            paint: {
+                'circle-radius': [
+                    // 地図の縮尺に合わせて2の累乗でスケールさせる
+                    'interpolate', ['exponential', 2], ['zoom'],
+                    // ① ズームレベル2（世界地図〜大陸レベル）: ズーム4の1/4のサイズ
+                    2, [
+                        'interpolate', ['linear'], ['get', 'mag'],
+                        0, 1,
+                        3, 1.5,
+                        5, 2.5
+                    ],
+                    // ② ズームレベル4（国全体が見えるレベル）: 基準サイズ
+                    4, [
+                        'interpolate', ['linear'], ['get', 'mag'],
+                        0, 4,
+                        3, 6,
+                        5, 10
+                    ],
+                    // ③ ズームレベル8（県が見えるレベル）
+                    8, [
+                        'interpolate', ['linear'], ['get', 'mag'],
+                        0, 64,
+                        3, 96,
+                        5, 160
+                    ],
+                    // ④ ズームレベル12（市区町村が見えるレベル）
+                    12, [
+                        'interpolate', ['linear'], ['get', 'mag'],
+                        0, 1024,
+                        3, 1536,
+                        5, 2560
+                    ]
+                ],
+                // マグニチュードに応じて色を変化させる（凡例と同じ色合い）
+                'circle-color': [
+                    'interpolate', ['linear'], ['get', 'mag'],
+                    0, 'rgba(33, 102, 172, 0.5)', // M0: 薄い青（透明度あり）
+                    3, 'rgb(255, 237, 160)',      // M3: 薄い黄色
+                    4.5, 'rgb(254, 178, 76)',     // M4.5: オレンジ
+                    6, 'rgb(240, 59, 32)',        // M6: 赤
+                    7.5, 'rgb(189, 0, 38)'        // M7.5以上: 濃い赤
+                ],
+                'circle-opacity': 0.6,
+                'circle-stroke-width': 0.5,
+                'circle-stroke-color': '#ffffff'
+            }
+        });
+
         map.addLayer({
             id: 'significant-earthquakes',
             type: 'circle',
@@ -478,13 +748,43 @@ function finishAnalysis() {
             filter: ['>=', ['get', 'mag'], 5.0],
             paint: {
                 'circle-radius': [
-                    'interpolate', ['linear'], ['get', 'mag'],
-                    5, 6, 7, 15
+                    'interpolate', ['exponential', 2], ['zoom'],
+                    // ① ズームレベル2（世界地図〜大陸レベル）: ズーム4の1/4のサイズ
+                    2, [
+                        'interpolate', ['linear'], ['get', 'mag'],
+                        5, 3,
+                        7, 6.25
+                    ],
+                    // ② ズームレベル4（国全体が見えるレベル）: 基準サイズ
+                    4, [
+                        'interpolate', ['linear'], ['get', 'mag'],
+                        5, 12,
+                        7, 25
+                    ],
+                    // ③ ズームレベル8（県単位）
+                    8, [
+                        'interpolate', ['linear'], ['get', 'mag'],
+                        5, 192,
+                        7, 400
+                    ],
+                    // ④ ズームレベル12（市区町村単位）
+                    12, [
+                        'interpolate', ['linear'], ['get', 'mag'],
+                        5, 3072,
+                        7, 6400
+                    ]
                 ],
-                'circle-color': '#ff1744',
+                'circle-color': [
+                    'interpolate', ['linear'], ['get', 'mag'],
+                    0, 'rgba(33, 102, 172, 0.5)',
+                    3, 'rgb(255, 237, 160)',
+                    4.5, 'rgb(254, 178, 76)',
+                    6, 'rgb(240, 59, 32)',
+                    7.5, 'rgb(189, 0, 38)'
+                ],
                 'circle-stroke-width': 2,
                 'circle-stroke-color': '#ffffff',
-                'circle-opacity': 0.9
+                'circle-opacity': 0.8
             }
         });
     } else {
@@ -498,6 +798,8 @@ function finishAnalysis() {
     }
 
     document.getElementById('legend').classList.remove('hidden');
+    updateDisplayLayers();
+    initTimeSlider();
 }
 
 
@@ -527,52 +829,51 @@ const displayEnd = document.getElementById('time-display-end');
 const playPauseBtn = document.getElementById('play-pause-btn');
 let playbackInterval = null;
 
-document.getElementById('time-filter-btn').addEventListener('click', () => {
-    if (!earthquakeData || earthquakeData.features.length === 0) {
-        alert('データがありません。先に「分析開始」を実行してください。');
-        return;
-    }
+// 分析完了時に呼ばれる初期化関数を定義
+function initTimeSlider() {
+    if (!earthquakeData || earthquakeData.features.length === 0) return;
 
-    // データから最小・最大時間(タイムスタンプ)を取得
     const features = earthquakeData.features;
     const minTime = features[0].properties.time;
     const maxTime = features[features.length - 1].properties.time;
 
-    // スライダーの範囲を設定
     sliderStart.min = minTime;
     sliderStart.max = maxTime;
     sliderEnd.min = minTime;
     sliderEnd.max = maxTime;
     
-    // 初期値は全期間を表示
     sliderStart.value = minTime;
     sliderEnd.value = maxTime;
 
     updateTimeFilter();
 
-    // パネル表示と「再分析」ボタンの上スライド
+    // パネルを表示して UIを上げる
     timePanel.classList.remove('hidden');
     uiContainer.classList.add('lifted');
-});
+    
+    // 付箋ボタンは隠す
+    document.getElementById('show-time-panel-toggle').classList.add('hidden');
+}
 
+// ×ボタンを押したときの処理
 document.getElementById('close-time-panel-btn').addEventListener('click', () => {
+    // パネルを下に隠す
     timePanel.classList.add('hidden');
     uiContainer.classList.remove('lifted');
     
-    // 再生中なら停止
-    if (playbackInterval) {
-        clearInterval(playbackInterval);
-        playbackInterval = null;
-        playPauseBtn.innerText = '▶ 再生';
-    }
+    // 代わりに付箋(タブ)ボタンをひょっこり表示させる
+    document.getElementById('show-time-panel-toggle').classList.remove('hidden');
     
-    // 地図のフィルターを解除して全件表示に戻す
-    if (map.getLayer('earthquakes-heat')) {
-        map.setFilter('earthquakes-heat', null);
-    }
-    if (map.getLayer('significant-earthquakes')) {
-        map.setFilter('significant-earthquakes', ['>=', ['get', 'mag'], 5.0]);
-    }
+});
+
+// 付箋(タブ)ボタンをクリックしたときの処理
+document.getElementById('show-time-panel-toggle').addEventListener('click', () => {
+    // パネルを再表示する
+    timePanel.classList.remove('hidden');
+    uiContainer.classList.add('lifted');
+    
+    // 付箋ボタン自身を隠す
+    document.getElementById('show-time-panel-toggle').classList.add('hidden');
 });
 
 // スライダー操作時のイベント
@@ -633,6 +934,9 @@ function applyMapTimeFilter(startTime, endTime) {
     
     if (map.getLayer('earthquakes-heat')) {
         map.setFilter('earthquakes-heat', filterAll);
+    }
+    if (map.getLayer('earthquakes-points')) {
+        map.setFilter('earthquakes-points', filterAll);
     }
     if (map.getLayer('significant-earthquakes')) {
         map.setFilter('significant-earthquakes', filterSig);
@@ -705,10 +1009,43 @@ function calculateAreaDetails(e) {
     
     const polygon = data.features[0]; 
     
-    const pts = turf.featureCollection(earthquakeData.features);
+    // 【修正箇所】日付変更線またぎ対策
+    // 地震データを仮想的に左右の地球（-360度, +360度）にも配置する
+    let wrappedFeatures = [];
+    earthquakeData.features.forEach(f => {
+        const lng = f.geometry.coordinates[0];
+        
+        // ① 元の座標
+        wrappedFeatures.push(f);
+        
+        // ② 右側にスクロールして描画した時用（+360度）
+        let fPlus = JSON.parse(JSON.stringify(f));
+        fPlus.geometry.coordinates[0] = lng + 360;
+        wrappedFeatures.push(fPlus);
+        
+        // ③ 左側にスクロールして描画した時用（-360度）
+        let fMinus = JSON.parse(JSON.stringify(f));
+        fMinus.geometry.coordinates[0] = lng - 360;
+        wrappedFeatures.push(fMinus);
+    });
+    
+    const pts = turf.featureCollection(wrappedFeatures);
     const pointsWithin = turf.pointsWithinPolygon(pts, polygon);
     
-    showAreaSidebarStats(pointsWithin.features);
+    // 巨大な図形を描いた際、同じ地震を重複してカウントしないようIDでフィルターをかける
+    const uniqueFeatures = [];
+    const seenIds = new Set();
+    
+    pointsWithin.features.forEach(f => {
+        // USGSのデータには f.id が存在するため、それを利用して重複チェック
+        if (!seenIds.has(f.id)) {
+            seenIds.add(f.id);
+            uniqueFeatures.push(f);
+        }
+    });
+    
+    // 重複を排除したデータをサイドバーの計算用関数へ渡す
+    showAreaSidebarStats(uniqueFeatures);
 }
 
 function showAreaSidebarStats(features) {
@@ -759,30 +1096,40 @@ function showAreaSidebarStats(features) {
 
 
 // ===== 大きな地震のピンをクリックしたときの処理 =====
-map.on('click', 'significant-earthquakes', (e) => {
-    if (draw.getMode() !== 'simple_select') return;
+const pointLayers = ['significant-earthquakes', 'earthquakes-points'];
 
-    const properties = e.features[0].properties;
-    const earthquakeTime = new Date(properties.time).toLocaleString('ja-JP');
-    const sidebarContent = document.getElementById('sidebar-content');
-    sidebarContent.innerHTML = `
-        <h2 style="color: #d32f2f; margin-top:0;">⚠️ 大規模地震情報</h2>
-        <hr>
-        <p><strong>震源地:</strong><br>${properties.place}</p>
-        <p><strong>規模 (マグニチュード):</strong><br><span style="font-size:20px; font-weight:bold; color:#d32f2f;">M ${properties.mag}</span></p>
-        <p><strong>発生日時 (日本時間):</strong><br>${earthquakeTime}</p>
-        <p><strong>津波警報の連動:</strong><br>${properties.tsunami === 1 ? '⚠️ 津波発生の可能性あり' : 'なし'}</p>
-        <hr>
-        <p><a href="${properties.url}" target="_blank" style="color: #ff5722; text-decoration: none; font-weight: bold;">➡️ USGSで詳細を見る(外部サイト)</a></p>
-    `;
-    document.getElementById('sidebar').classList.add('active');
-});
+pointLayers.forEach(layer => {
+    map.on('click', layer, (e) => {
+        if (draw.getMode() !== 'simple_select') return;
 
-map.on('mouseenter', 'significant-earthquakes', () => {
-    map.getCanvas().style.cursor = 'pointer';
-});
-map.on('mouseleave', 'significant-earthquakes', () => {
-    map.getCanvas().style.cursor = '';
+        const properties = e.features[0].properties;
+        const earthquakeTime = new Date(properties.time).toLocaleString('ja-JP');
+        const sidebarContent = document.getElementById('sidebar-content');
+        
+        // M5以上かどうかでタイトルと色を分ける
+        const isSignificant = properties.mag >= 5.0;
+        const titleColor = isSignificant ? '#d32f2f' : '#2196F3';
+        const titleText = isSignificant ? '⚠️ 大規模地震情報' : 'ℹ️ 地震詳細情報';
+
+        sidebarContent.innerHTML = `
+            <h2 style="color: ${titleColor}; margin-top:0;">${titleText}</h2>
+            <hr>
+            <p><strong>震源地:</strong><br>${properties.place}</p>
+            <p><strong>規模 (マグニチュード):</strong><br><span style="font-size:20px; font-weight:bold; color:${titleColor};">M ${properties.mag}</span></p>
+            <p><strong>発生日時 (日本時間):</strong><br>${earthquakeTime}</p>
+            <p><strong>津波警報の連動:</strong><br>${properties.tsunami === 1 ? '⚠️ 津波発生の可能性あり' : 'なし'}</p>
+            <hr>
+            <p><a href="${properties.url}" target="_blank" style="color: #ff5722; text-decoration: none; font-weight: bold;">➡️ USGSで詳細を見る(外部サイト)</a></p>
+        `;
+        document.getElementById('sidebar').classList.add('active');
+    });
+
+    map.on('mouseenter', layer, () => {
+        map.getCanvas().style.cursor = 'pointer';
+    });
+    map.on('mouseleave', layer, () => {
+        map.getCanvas().style.cursor = '';
+    });
 });
 
 
